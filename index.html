@@ -1,475 +1,199 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>AR Hand VR Fixed</title>
-
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Real Table AR</title>
 <style>
-html, body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background: #000;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-  font-family: Arial, sans-serif;
-}
-
-#hiddenVideo {
-  display: none;
-}
-
-#viewCanvas, #threeCanvas {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-}
-
-#viewCanvas {
-  z-index: 1;
-}
-
-#threeCanvas {
-  z-index: 2;
-  pointer-events: none;
-}
-
-#ui {
-  position: fixed;
-  z-index: 10;
-  left: 12px;
-  bottom: 12px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-button {
-  border: none;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: bold;
-  background: white;
-  color: black;
-}
-
-#status {
-  position: fixed;
-  top: 10px;
-  left: 10px;
-  z-index: 11;
-  color: white;
-  background: rgba(0,0,0,0.55);
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-}
+  html, body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+  }
+  #info {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 5;
+    color: white;
+    background: rgba(0,0,0,.55);
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
 </style>
 </head>
-
 <body>
 
-<video id="hiddenVideo" autoplay playsinline muted></video>
-<canvas id="viewCanvas"></canvas>
-<div id="threeCanvas"></div>
-
-<div id="status">Starting...</div>
-
-<div id="ui">
-  <button onclick="enterFullscreen()">FULLSCREEN</button>
-  <button onclick="setShape('cube')">Cube</button>
-  <button onclick="setShape('sphere')">Sphere</button>
-  <button onclick="setShape('torus')">Ring</button>
-  <button onclick="deleteLast()">Delete</button>
-  <button onclick="clearAll()">Clear</button>
+<div id="info">
+  Tap <b>START AR</b> → move phone slowly at table → white ring appears → tap screen to place model.
+  After placing, move away and look back: model should stay on table.
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js";
 
-<script>
-const video = document.getElementById("hiddenVideo");
-const viewCanvas = document.getElementById("viewCanvas");
-const ctx = viewCanvas.getContext("2d");
-const statusBox = document.getElementById("status");
+let camera, scene, renderer;
+let controller;
+let reticle;
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let placedObjects = [];
 
-let W = window.innerWidth;
-let H = window.innerHeight;
-let eyeW = W / 2;
+init();
+animate();
 
-viewCanvas.width = W;
-viewCanvas.height = H;
+function init() {
+  scene = new THREE.Scene();
 
-let selectedShape = "cube";
-let objects = [];
-let grabbed = null;
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-let landmarks = null;
-let isPinch = false;
-let wasPinch = false;
-let lastCreate = 0;
+  const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 2.5);
+  scene.add(light);
 
-let smoothX = 0.5;
-let smoothY = 0.5;
-let smoothZ = -2.5;
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+  dirLight.position.set(1, 3, 2);
+  scene.add(dirLight);
 
-const PINCH_DIST = 0.055;
-const SMOOTH = 0.25;
-
-function resizeAll() {
-  W = window.innerWidth;
-  H = window.innerHeight;
-  eyeW = W / 2;
-
-  viewCanvas.width = W;
-  viewCanvas.height = H;
-
-  renderer.setSize(W, H);
-
-  leftCam.aspect = eyeW / H;
-  rightCam.aspect = eyeW / H;
-
-  leftCam.updateProjectionMatrix();
-  rightCam.updateProjectionMatrix();
-}
-
-window.addEventListener("resize", resizeAll);
-
-function enterFullscreen() {
-  const el = document.documentElement;
-  if (el.requestFullscreen) el.requestFullscreen();
-  if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock("landscape").catch(() => {});
-  }
-}
-
-function setShape(s) {
-  selectedShape = s;
-}
-
-function distance(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  const dz = (a.z || 0) - (b.z || 0);
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-function screenToWorld(x, y, z) {
-  return {
-    x: (x - 0.5) * 5,
-    y: -(y - 0.5) * 3.2,
-    z: -2.2 + z * 4
-  };
-}
-
-function nearestObject(pos) {
-  let best = null;
-  let bestDist = 999;
-
-  for (const obj of objects) {
-    const d = obj.position.distanceTo(new THREE.Vector3(pos.x, pos.y, pos.z));
-    if (d < bestDist) {
-      bestDist = d;
-      best = obj;
-    }
-  }
-
-  return bestDist < 0.75 ? best : null;
-}
-
-function createObject(pos) {
-  let geo;
-
-  if (selectedShape === "cube") {
-    geo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
-  } else if (selectedShape === "sphere") {
-    geo = new THREE.SphereGeometry(0.28, 32, 32);
-  } else {
-    geo = new THREE.TorusGeometry(0.28, 0.08, 16, 64);
-  }
-
-  const mat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
-    roughness: 0.35,
-    metalness: 0.25
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true
   });
 
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(pos.x, pos.y, pos.z);
-  scene.add(mesh);
-  objects.push(mesh);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-  return mesh;
+  document.body.appendChild(
+    ARButton.createButton(renderer, {
+      requiredFeatures: ["hit-test"],
+      optionalFeatures: ["anchors", "dom-overlay"],
+      domOverlay: { root: document.body }
+    })
+  );
+
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.12, 0.16, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+
+  controller = renderer.xr.getController(0);
+  controller.addEventListener("select", placeObject);
+  scene.add(controller);
+
+  window.addEventListener("resize", onResize);
 }
 
-function deleteLast() {
-  const obj = objects.pop();
-  if (obj) scene.remove(obj);
+function createModel() {
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.22, 0.22),
+    new THREE.MeshStandardMaterial({
+      color: 0x00eaff,
+      roughness: 0.35,
+      metalness: 0.35
+    })
+  );
+  body.position.y = 0.13;
+  group.add(body);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 32, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0xffdd55,
+      roughness: 0.3,
+      metalness: 0.15
+    })
+  );
+  head.position.y = 0.38;
+  group.add(head);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.035, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.45,
+      metalness: 0.05
+    })
+  );
+  base.position.y = 0.02;
+  group.add(base);
+
+  group.scale.setScalar(1);
+  return group;
 }
 
-function clearAll() {
-  for (const obj of objects) scene.remove(obj);
-  objects = [];
-  grabbed = null;
+async function placeObject() {
+  if (!reticle.visible) return;
+
+  const obj = createModel();
+
+  reticle.matrix.decompose(obj.position, obj.quaternion, obj.scale);
+  obj.scale.setScalar(1);
+
+  scene.add(obj);
+  placedObjects.push(obj);
 }
 
-const scene = new THREE.Scene();
-
-const leftCam = new THREE.PerspectiveCamera(70, eyeW / H, 0.01, 100);
-const rightCam = new THREE.PerspectiveCamera(70, eyeW / H, 0.01, 100);
-
-leftCam.position.set(-0.035, 0, 3.8);
-rightCam.position.set(0.035, 0, 3.8);
-
-const renderer = new THREE.WebGLRenderer({
-  alpha: true,
-  antialias: true
-});
-
-renderer.setSize(W, H);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.autoClear = false;
-document.getElementById("threeCanvas").appendChild(renderer.domElement);
-
-const light = new THREE.DirectionalLight(0xffffff, 2);
-light.position.set(2, 4, 5);
-scene.add(light);
-
-scene.add(new THREE.AmbientLight(0xffffff, 1.4));
-
-const grid = new THREE.GridHelper(8, 8);
-grid.position.y = -1.4;
-grid.material.transparent = true;
-grid.material.opacity = 0.22;
-scene.add(grid);
-
-function drawCameraBothEyes() {
-  ctx.clearRect(0, 0, W, H);
-
-  if (video.readyState >= 2) {
-    drawVideoEye(0, 0, eyeW, H);
-    drawVideoEye(eyeW, 0, eyeW, H);
-  }
-
-  if (landmarks) {
-    drawSkeleton(0, 0, eyeW, H);
-    drawSkeleton(eyeW, 0, eyeW, H);
-  }
-
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(eyeW, 0);
-  ctx.lineTo(eyeW, H);
-  ctx.stroke();
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function drawVideoEye(x, y, w, h) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-
-  const videoRatio = vw / vh;
-  const boxRatio = w / h;
-
-  let sx, sy, sw, sh;
-
-  if (videoRatio > boxRatio) {
-    sh = vh;
-    sw = vh * boxRatio;
-    sx = (vw - sw) / 2;
-    sy = 0;
-  } else {
-    sw = vw;
-    sh = vw / boxRatio;
-    sx = 0;
-    sy = (vh - sh) / 2;
-  }
-
-  ctx.drawImage(video, sx, sy, sw, sh, x, y, w, h);
+function animate() {
+  renderer.setAnimationLoop(render);
 }
 
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [5,9],[9,10],[10,11],[11,12],
-  [9,13],[13,14],[14,15],[15,16],
-  [13,17],[17,18],[18,19],[19,20],
-  [0,17]
-];
+function render(timestamp, frame) {
+  if (frame) {
+    const referenceSpace = renderer.xr.getReferenceSpace();
+    const session = renderer.xr.getSession();
 
-function drawSkeleton(ox, oy, w, h) {
-  ctx.save();
-  ctx.translate(ox, oy);
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace("viewer").then((viewerSpace) => {
+        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+          hitTestSource = source;
+        });
+      });
 
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "rgba(0,255,255,0.95)";
-  ctx.fillStyle = "rgba(255,255,255,0.95)";
+      session.addEventListener("end", () => {
+        hitTestSourceRequested = false;
+        hitTestSource = null;
+      });
 
-  for (const [a, b] of HAND_CONNECTIONS) {
-    const p1 = landmarks[a];
-    const p2 = landmarks[b];
+      hitTestSourceRequested = true;
+    }
 
-    ctx.beginPath();
-    ctx.moveTo(p1.x * w, p1.y * h);
-    ctx.lineTo(p2.x * w, p2.y * h);
-    ctx.stroke();
-  }
+    if (hitTestSource) {
+      const hitTestResults = frame.getHitTestResults(hitTestSource);
 
-  for (let i = 0; i < landmarks.length; i++) {
-    const p = landmarks[i];
+      if (hitTestResults.length) {
+        const hit = hitTestResults[0];
+        const pose = hit.getPose(referenceSpace);
 
-    ctx.beginPath();
-    ctx.arc(p.x * w, p.y * h, i === 4 || i === 8 ? 7 : 4.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.restore();
-}
-
-function onHands(results) {
-  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-    landmarks = null;
-    isPinch = false;
-    wasPinch = false;
-    grabbed = null;
-    statusBox.innerText = "No hand";
-    return;
-  }
-
-  landmarks = results.multiHandLandmarks[0];
-
-  const thumb = landmarks[4];
-  const index = landmarks[8];
-
-  const d = distance(thumb, index);
-  isPinch = d < PINCH_DIST;
-
-  smoothX += (index.x - smoothX) * SMOOTH;
-  smoothY += (index.y - smoothY) * SMOOTH;
-  smoothZ += ((index.z || 0) - smoothZ) * SMOOTH;
-
-  const pos = screenToWorld(smoothX, smoothY, smoothZ);
-
-  if (isPinch && !wasPinch) {
-    const near = nearestObject(pos);
-
-    if (near) {
-      grabbed = near;
-    } else {
-      const now = performance.now();
-      if (now - lastCreate > 400) {
-        grabbed = createObject(pos);
-        lastCreate = now;
+        reticle.visible = true;
+        reticle.matrix.fromArray(pose.transform.matrix);
+      } else {
+        reticle.visible = false;
       }
     }
   }
 
-  if (isPinch && grabbed) {
-    grabbed.position.x += (pos.x - grabbed.position.x) * 0.35;
-    grabbed.position.y += (pos.y - grabbed.position.y) * 0.35;
-    grabbed.position.z += (pos.z - grabbed.position.z) * 0.35;
-
-    grabbed.rotation.x += 0.02;
-    grabbed.rotation.y += 0.03;
-    grabbed.scale.setScalar(1.15);
+  for (const obj of placedObjects) {
+    obj.rotation.y += 0.01;
   }
 
-  if (!isPinch && wasPinch) {
-    if (grabbed) grabbed.scale.setScalar(1);
-    grabbed = null;
-  }
-
-  wasPinch = isPinch;
-
-  statusBox.innerText = isPinch ? "Pinch active" : "Hand tracking";
+  renderer.render(scene, camera);
 }
-
-async function start() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { exact: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    });
-
-    video.srcObject = stream;
-    await video.play();
-
-    const hands = new Hands({
-      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
-
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.65,
-      minTrackingConfidence: 0.65
-    });
-
-    hands.onResults(onHands);
-
-    async function processFrame() {
-      if (video.readyState >= 2) {
-        await hands.send({ image: video });
-      }
-      requestAnimationFrame(processFrame);
-    }
-
-    processFrame();
-
-    statusBox.innerText = "Back camera ready";
-  } catch (err) {
-    console.error(err);
-
-    statusBox.innerText = "Back camera failed, trying fallback";
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "environment",
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    });
-
-    video.srcObject = stream;
-    await video.play();
-  }
-}
-
-function render3D() {
-  requestAnimationFrame(render3D);
-
-  drawCameraBothEyes();
-
-  for (const obj of objects) {
-    if (obj !== grabbed) obj.rotation.y += 0.004;
-  }
-
-  renderer.clear();
-
-  renderer.setScissorTest(true);
-
-  renderer.setViewport(0, 0, eyeW, H);
-  renderer.setScissor(0, 0, eyeW, H);
-  renderer.render(scene, leftCam);
-
-  renderer.setViewport(eyeW, 0, eyeW, H);
-  renderer.setScissor(eyeW, 0, eyeW, H);
-  renderer.render(scene, rightCam);
-
-  renderer.setScissorTest(false);
-}
-
-start();
-render3D();
-resizeAll();
 </script>
 
 </body>
