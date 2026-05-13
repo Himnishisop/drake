@@ -1,51 +1,429 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Right Click Test</title>
-  <style>
-    body {
-      font-family: Arial;
-      text-align: center;
-      margin-top: 100px;
-    }
-    #box {
-      font-size: 25px;
-      padding: 20px;
-      border: 2px solid black;
-      display: inline-block;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Hand AR Creator</title>
+
+<style>
+  html, body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+    font-family: Arial, sans-serif;
+  }
+
+  #camera {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+    z-index: 1;
+  }
+
+  #three {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  #hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 5;
+    color: white;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  #controls {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  button {
+    border: none;
+    padding: 10px 13px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.9);
+    color: #000;
+    font-weight: bold;
+    font-size: 13px;
+  }
+
+  button:active {
+    transform: scale(0.95);
+  }
+
+  #crosshair {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin-left: -8px;
+    margin-top: -8px;
+    border: 2px solid white;
+    border-radius: 50%;
+    z-index: 7;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .vr #camera {
+    width: 50vw;
+    height: 100vh;
+  }
+
+  .vr #camera.clone {
+    display: block;
+  }
+
+  #camera2 {
+    display: none;
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 50vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+    z-index: 1;
+  }
+
+  .vr #camera2 {
+    display: block;
+  }
+
+  .vr #hud {
+    display: none;
+  }
+
+  .vr #crosshair {
+    display: none;
+  }
+</style>
 </head>
+
 <body>
 
-<div id="box">Waiting...</div>
+<video id="camera" autoplay playsinline muted></video>
+<video id="camera2" autoplay playsinline muted></video>
+
+<div id="three"></div>
+<div id="crosshair"></div>
+
+<div id="hud">
+  <b>Hand AR Creator</b><br>
+  Status: <span id="status">loading...</span><br>
+  Pinch: create / grab / drag<br>
+  Objects: <span id="count">0</span><br>
+  Mode: <span id="mode">normal</span>
+</div>
+
+<div id="controls">
+  <button onclick="setShape('cube')">Cube</button>
+  <button onclick="setShape('sphere')">Sphere</button>
+  <button onclick="setShape('torus')">Ring</button>
+  <button onclick="deleteLast()">Delete</button>
+  <button onclick="clearAll()">Clear</button>
+  <button onclick="toggleVR()">VR</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-let box = document.getElementById("box");
+let video = document.getElementById("camera");
+let video2 = document.getElementById("camera2");
+let statusText = document.getElementById("status");
+let countText = document.getElementById("count");
+let modeText = document.getElementById("mode");
 
-// LEFT CLICK
-document.addEventListener("click", () => {
-  box.innerText = "LEFT CLICK DETECTED";
+let selectedShape = "cube";
+let objects = [];
+let grabbedObject = null;
+
+let isPinching = false;
+let wasPinching = false;
+let pinchStartTime = 0;
+
+let handX = 0;
+let handY = 0;
+let handZ = 0;
+
+let smoothX = 0;
+let smoothY = 0;
+let smoothZ = 0;
+
+let lastCreateTime = 0;
+let vrMode = false;
+
+const PINCH_DISTANCE = 0.055;
+const SMOOTHING = 0.22;
+
+const scene = new THREE.Scene();
+
+const camera3D = new THREE.PerspectiveCamera(
+  70,
+  window.innerWidth / window.innerHeight,
+  0.01,
+  100
+);
+
+camera3D.position.set(0, 0, 4);
+
+const renderer = new THREE.WebGLRenderer({
+  alpha: true,
+  antialias: true
 });
 
-// RIGHT CLICK (BACK BUTTON TRAP)
-function setupBackTrap() {
-  history.pushState({test:1}, "", "");
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.getElementById("three").appendChild(renderer.domElement);
+
+const light = new THREE.DirectionalLight(0xffffff, 2);
+light.position.set(2, 4, 5);
+scene.add(light);
+
+const ambient = new THREE.AmbientLight(0xffffff, 1.5);
+scene.add(ambient);
+
+const grid = new THREE.GridHelper(8, 8);
+grid.position.y = -1.4;
+grid.material.opacity = 0.25;
+grid.material.transparent = true;
+scene.add(grid);
+
+function setShape(shape) {
+  selectedShape = shape;
 }
 
-window.addEventListener("popstate", () => {
-  box.innerText = "RIGHT CLICK (BACK) DETECTED";
-  
-  // re-add trap so it keeps working
-  setTimeout(() => {
-    history.pushState({test:1}, "", "");
-  }, 0);
+function createObject(x, y, z) {
+  let geometry;
+
+  if (selectedShape === "cube") {
+    geometry = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+  } else if (selectedShape === "sphere") {
+    geometry = new THREE.SphereGeometry(0.28, 32, 32);
+  } else {
+    geometry = new THREE.TorusGeometry(0.28, 0.09, 16, 64);
+  }
+
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+    roughness: 0.35,
+    metalness: 0.25
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(x, y, z);
+  mesh.userData.targetScale = 1;
+  scene.add(mesh);
+  objects.push(mesh);
+  countText.textContent = objects.length;
+
+  return mesh;
+}
+
+function deleteLast() {
+  const obj = objects.pop();
+  if (obj) {
+    scene.remove(obj);
+    countText.textContent = objects.length;
+  }
+}
+
+function clearAll() {
+  for (const obj of objects) scene.remove(obj);
+  objects = [];
+  grabbedObject = null;
+  countText.textContent = 0;
+}
+
+function screenToWorld(nx, ny, depth) {
+  const x = (nx - 0.5) * 5.2;
+  const y = -(ny - 0.5) * 3.2;
+  const z = depth;
+  return { x, y, z };
+}
+
+function findNearestObject(x, y, z) {
+  let nearest = null;
+  let minDist = 999;
+
+  for (const obj of objects) {
+    const d = obj.position.distanceTo(new THREE.Vector3(x, y, z));
+    if (d < minDist) {
+      minDist = d;
+      nearest = obj;
+    }
+  }
+
+  if (minDist < 0.8) return nearest;
+  return null;
+}
+
+function distance(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = (a.z || 0) - (b.z || 0);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function onHandResults(results) {
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    statusText.textContent = "no hand";
+    isPinching = false;
+    grabbedObject = null;
+    return;
+  }
+
+  statusText.textContent = "hand detected";
+
+  const hand = results.multiHandLandmarks[0];
+
+  const thumb = hand[4];
+  const index = hand[8];
+  const middle = hand[12];
+
+  const pinchDist = distance(thumb, index);
+
+  handX = index.x;
+  handY = index.y;
+  handZ = -2.2 + index.z * 5;
+
+  smoothX += (handX - smoothX) * SMOOTHING;
+  smoothY += (handY - smoothY) * SMOOTHING;
+  smoothZ += (handZ - smoothZ) * SMOOTHING;
+
+  isPinching = pinchDist < PINCH_DISTANCE;
+
+  const world = screenToWorld(smoothX, smoothY, smoothZ);
+
+  if (isPinching && !wasPinching) {
+    pinchStartTime = performance.now();
+
+    const near = findNearestObject(world.x, world.y, world.z);
+
+    if (near) {
+      grabbedObject = near;
+    } else {
+      const now = performance.now();
+      if (now - lastCreateTime > 450) {
+        grabbedObject = createObject(world.x, world.y, world.z);
+        lastCreateTime = now;
+      }
+    }
+  }
+
+  if (isPinching && grabbedObject) {
+    grabbedObject.position.x += (world.x - grabbedObject.position.x) * 0.35;
+    grabbedObject.position.y += (world.y - grabbedObject.position.y) * 0.35;
+    grabbedObject.position.z += (world.z - grabbedObject.position.z) * 0.35;
+
+    grabbedObject.rotation.x += 0.025;
+    grabbedObject.rotation.y += 0.035;
+
+    grabbedObject.scale.setScalar(1.15);
+  }
+
+  if (!isPinching && wasPinching) {
+    if (grabbedObject) {
+      grabbedObject.scale.setScalar(1);
+    }
+    grabbedObject = null;
+  }
+
+  wasPinching = isPinching;
+}
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    video.srcObject = stream;
+    video2.srcObject = stream;
+
+    const hands = new Hands({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65
+    });
+
+    hands.onResults(onHandResults);
+
+    const mpCamera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: 1280,
+      height: 720
+    });
+
+    mpCamera.start();
+    statusText.textContent = "camera ready";
+  } catch (err) {
+    statusText.textContent = "camera blocked";
+    alert("Camera permission blocked or not supported.");
+    console.error(err);
+  }
+}
+
+function toggleVR() {
+  vrMode = !vrMode;
+  document.body.classList.toggle("vr", vrMode);
+  modeText.textContent = vrMode ? "vr headset" : "normal";
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  for (const obj of objects) {
+    if (obj !== grabbedObject) {
+      obj.rotation.y += 0.004;
+    }
+  }
+
+  renderer.render(scene, camera3D);
+}
+
+window.addEventListener("resize", () => {
+  camera3D.aspect = window.innerWidth / window.innerHeight;
+  camera3D.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// activate after first touch (important)
-document.addEventListener("click", setupBackTrap, { once: true });
-document.addEventListener("touchstart", setupBackTrap, { once: true });
-
+startCamera();
+animate();
 </script>
 
 </body>
