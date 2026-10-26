@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MR Star Final Controller</title>
+    <title>MR Star HSV Controller</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -97,7 +97,7 @@
 <body>
 
 <div class="container">
-    <h1>MR Star Controller</h1>
+    <h1>MR Star HSV Controller</h1>
     <div id="status" class="status-badge">Status: Disconnected</div>
 
     <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
@@ -177,33 +177,49 @@
         }
     });
 
-    // Exact Power ON from Frame 373: bc 01 01 01 55
     powerOnBtn.addEventListener('click', async () => {
         const packet = new Uint8Array([0xbc, 0x01, 0x01, 0x01, 0x55]);
         await sendBytes(packet);
         log("Power ON sent");
     });
 
-    // Exact Power OFF from Frame 371: bc 01 01 00 55
     powerOffBtn.addEventListener('click', async () => {
         const packet = new Uint8Array([0xbc, 0x01, 0x01, 0x00, 0x55]);
         await sendBytes(packet);
         log("Power OFF sent");
     });
 
-    // Color picker mapped using the 0x04 0x06 frame structure derived from Frame 375
+    // Converts Hex Color to HSV bytes matching the firmware's native color wheel mapping
     colorPicker.addEventListener('input', async (e) => {
         const hex = e.target.value;
-        const r = parseInt(hex.substring(1, 3), 16);
-        const g = parseInt(hex.substring(3, 5), 16);
-        const b = parseInt(hex.substring(5, 7), 16);
+        const r = parseInt(hex.substring(1, 3), 16) / 255;
+        const g = parseInt(hex.substring(3, 5), 16) / 255;
+        const b = parseInt(hex.substring(5, 7), 16) / 255;
 
-        // Scaling RGB values into the controller's hue/saturation byte positions
-        const val1 = (r ^ g) & 0xFF;
-        const val2 = g & 0xFF;
-        const val3 = b & 0xFF;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, v = max;
+        const d = max - min;
+        s = max === 0 ? 0 : d / max;
 
-        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, val1, val2, val3, 0x00, 0x00, 0x55]);
+        if (max === min) {
+            h = 0;
+        } else {
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+
+        // Map Hue (0-1) into a 16-bit integer index matching the log's wheel bytes
+        const hueVal = Math.floor(h * 360);
+        const highByte = (hueVal >> 8) & 0xFF;
+        const lowByte = hueVal & 0xFF;
+        const satByte = Math.floor(s * 255);
+
+        // Packet structure: [bc, 04, 06, state, highHue, lowHue, saturation, 00, 00, 55]
+        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, highByte, lowByte, satByte, 0x00, 0x00, 0x55]);
         await sendBytes(packet);
     });
 
