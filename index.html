@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MR Star Hue Byte Tester</title>
+    <title>MR Star Final Controller</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -60,7 +60,6 @@
         .btn-connect { background: #10b981; color: white; }
         .btn-on { background: #22c55e; color: white; }
         .btn-off { background: #ef4444; color: white; }
-        .btn-test { background: #8b5cf6; color: white; }
 
         .control-group {
             margin: 16px 0;
@@ -70,6 +69,16 @@
         }
 
         label { font-size: 0.9rem; font-weight: bold; }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 100%;
+            height: 60px;
+            border-radius: 8px;
+            cursor: pointer;
+            background: transparent;
+        }
 
         #log {
             background: #020617;
@@ -88,7 +97,7 @@
 <body>
 
 <div class="container">
-    <h1>MR Star Hue Tester</h1>
+    <h1>MR Star Controller</h1>
     <div id="status" class="status-badge">Status: Disconnected</div>
 
     <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
@@ -99,11 +108,8 @@
     </div>
 
     <div class="control-group">
-        <label>Test Color Wheel Byte (Byte Index 6):</label>
-        <button class="btn btn-test" onclick="sendHueByte(0x00)" id="h1" disabled>Test Hue 0x00</button>
-        <button class="btn btn-test" onclick="sendHueByte(0x50)" id="h2" disabled>Test Hue 0x50</button>
-        <button class="btn btn-test" onclick="sendHueByte(0xA0)" id="h3" disabled>Test Hue 0xA0</button>
-        <button class="btn btn-test" onclick="sendHueByte(0xFF)" id="h4" disabled>Test Hue 0xFF</button>
+        <label for="colorPicker">Color / Tone Selector:</label>
+        <input type="color" id="colorPicker" value="#ff0000" disabled>
     </div>
 
     <h3>BLE Packet Log</h3>
@@ -115,6 +121,7 @@
     let targetCharacteristic = null;
 
     const connectBtn = document.getElementById('connectBtn');
+    const colorPicker = document.getElementById('colorPicker');
     const powerOnBtn = document.getElementById('powerOnBtn');
     const powerOffBtn = document.getElementById('powerOffBtn');
     const statusDiv = document.getElementById('status');
@@ -152,14 +159,11 @@
 
             if (targetCharacteristic) {
                 statusDiv.innerText = `Connected: ${bleDevice.name}`;
+                colorPicker.disabled = false;
                 powerOnBtn.disabled = false;
                 powerOffBtn.disabled = false;
-                document.getElementById('h1').disabled = false;
-                document.getElementById('h2').disabled = false;
-                document.getElementById('h3').disabled = false;
-                document.getElementById('h4').disabled = false;
                 connectBtn.style.display = 'none';
-                log(`Connected successfully!`);
+                log(`Connected successfully to handle 0x0003!`);
             }
         } catch (error) {
             log(`Error: ${error}`);
@@ -176,12 +180,18 @@
         log("Power OFF sent");
     });
 
-    async function sendHueByte(hueVal) {
-        // Testing changing the 7th byte position (index 6) which was 0x85 / 0x38 / 0xe0 in the logs
-        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, 0x00, 0x03, hueVal, 0x00, 0x00, 0x55]);
+    // Maps color picker intensity directly to your verified 0x00 - 0xFF hardware curve
+    colorPicker.addEventListener('input', async (e) => {
+        const hex = e.target.value;
+        const r = parseInt(hex.substring(1, 3), 16);
+        
+        // Scale the red component into the 0x00 to 0xFF range mapped from your tests
+        const mappedByte = Math.floor((r / 255) * 255);
+
+        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, 0x00, 0x03, mappedByte, 0x00, 0x00, 0x55]);
         await sendBytes(packet);
-        log(`Sent Hue test byte: 0x${hueVal.toString(16).padStart(2, '0')}`);
-    }
+        log(`Color intensity set to: 0x${mappedByte.toString(16).padStart(2, '0')}`);
+    });
 
     async function sendBytes(byteArray) {
         if (!targetCharacteristic) return;
