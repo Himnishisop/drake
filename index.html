@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GATT--DEMO Tester</title>
+    <title>GATT--DEMO Color & Dimmer</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -64,33 +64,24 @@
         }
 
         .btn-connect { background: #10b981; color: white; }
-        .btn-power { background: #ef4444; color: white; }
-        .btn-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin: 12px 0;
-        }
-
-        .btn-test { background: #6366f1; color: white; font-size: 0.85rem; padding: 10px; }
-
+        
         .control-group {
-            margin: 12px 0;
+            margin: 16px 0;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
         }
 
-        label { font-size: 0.85rem; font-weight: bold; }
+        label { font-size: 0.9rem; font-weight: bold; }
 
-        input, select {
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
             width: 100%;
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid #475569;
-            background: #0f172a;
-            color: white;
-            box-sizing: border-box;
+            height: 60px;
+            border-radius: 8px;
+            cursor: pointer;
+            background: transparent;
         }
 
         #log {
@@ -98,7 +89,7 @@
             border: 1px solid #1e293b;
             border-radius: 8px;
             padding: 10px;
-            height: 160px;
+            height: 150px;
             overflow-y: auto;
             font-family: monospace;
             font-size: 0.75rem;
@@ -110,58 +101,28 @@
 <body>
 
 <div class="container">
-    <h1>GATT--DEMO Tester</h1>
+    <h1>GATT--DEMO Controller</h1>
     <div id="status" class="status-badge">Status: Disconnected</div>
 
-    <button id="connectBtn" class="btn btn-connect">Connect & Probe BLE Services</button>
+    <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
 
     <div class="control-group">
-        <label for="charSelect">Discovered Write Characteristic:</label>
-        <select id="charSelect" disabled><option>Connect to populate...</option></select>
-    </div>
-
-    <div class="control-group">
-        <label for="brightnessSlider">PWM Brightness Level (0-255):</label>
-        <input type="range" id="brightnessSlider" min="0" max="255" value="255" disabled>
-    </div>
-
-    <label>Quick Protocol Payload Tests:</label>
-    <div class="btn-grid">
-        <button id="btnP1" class="btn btn-test" disabled>Format 1 (0x56 PWM)</button>
-        <button id="btnP2" class="btn btn-test" disabled>Format 2 (0x7E RGB)</button>
-        <button id="btnP3" class="btn btn-test" disabled>Format 3 (0xCC Toggle)</button>
-        <button id="btnP4" class="btn btn-test" disabled>Format 4 (0xAA Single)</button>
-    </div>
-
-    <div class="control-group">
-        <label for="customHex">Send Custom Hex String (e.g. 53 ff 00 ef):</label>
-        <div style="display:flex; gap:8px;">
-            <input type="text" id="customHex" placeholder="53 ff 00 ef" disabled>
-            <button id="sendHexBtn" class="btn btn-test" style="width: auto; padding: 0 16px;" disabled>Send</button>
-        </div>
+        <label for="colorPicker">Pick Rope Light Color:</label>
+        <input type="color" id="colorPicker" value="#ff0000" disabled>
     </div>
 
     <h3>BLE Packet Log</h3>
-    <div id="log">Ready to connect...</div>
+    <div id="log">Click connect to start...</div>
 </div>
 
 <script>
     let bleDevice = null;
     let targetCharacteristic = null;
-    let discoveredCharacteristics = [];
 
     const connectBtn = document.getElementById('connectBtn');
-    const charSelect = document.getElementById('charSelect');
-    const brightnessSlider = document.getElementById('brightnessSlider');
-    const customHexInput = document.getElementById('customHex');
-    const sendHexBtn = document.getElementById('sendHexBtn');
+    const colorPicker = document.getElementById('colorPicker');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
-
-    const btnP1 = document.getElementById('btnP1');
-    const btnP2 = document.getElementById('btnP2');
-    const btnP3 = document.getElementById('btnP3');
-    const btnP4 = document.getElementById('btnP4');
 
     function log(msg) {
         logDiv.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -170,56 +131,39 @@
 
     connectBtn.addEventListener('click', async () => {
         try {
-            log("Opening BLE Browser Picker...");
-            
-            // acceptAllDevices avoids UUID formatting syntax errors completely
+            log("Scanning for device...");
             bleDevice = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: [
                     '0000fff0-0000-1000-8000-00805f9b34fb',
-                    '0000ffe0-0000-1000-8000-00805f9b34fb',
-                    '0000ffd0-0000-1000-8000-00805f9b34fb',
-                    '0000180a-0000-1000-8000-00805f9b34fb'
+                    '0000ffe0-0000-1000-8000-00805f9b34fb'
                 ]
             });
 
-            log(`Device picked: ${bleDevice.name || 'Unnamed Device'}`);
+            log(`Found: ${bleDevice.name || 'Device'}`);
             statusDiv.innerText = `Connecting...`;
 
             const server = await bleDevice.gatt.connect();
-            log("GATT Server connected! Querying services...");
-
             const services = await server.getPrimaryServices();
-            charSelect.innerHTML = '';
-            discoveredCharacteristics = [];
 
             for (const service of services) {
-                log(`Service: ${service.uuid}`);
-                try {
-                    const chars = await service.getCharacteristics();
-                    for (const char of chars) {
-                        const canWrite = char.properties.write || char.properties.writeWithoutResponse;
-                        log(` - Char: ${char.uuid} (Writeable: ${canWrite})`);
-                        if (canWrite) {
-                            discoveredCharacteristics.push(char);
-                            const opt = document.createElement('option');
-                            opt.value = discoveredCharacteristics.length - 1;
-                            opt.innerText = `${char.uuid.substring(0, 8)}... (${char.properties.writeWithoutResponse ? 'NoResp' : 'Write'})`;
-                            charSelect.appendChild(opt);
-                        }
+                const chars = await service.getCharacteristics();
+                for (const char of chars) {
+                    if (char.properties.write || char.properties.writeWithoutResponse) {
+                        targetCharacteristic = char;
+                        break;
                     }
-                } catch(e) {
-                    log(` Could not inspect chars for ${service.uuid}`);
                 }
+                if (targetCharacteristic) break;
             }
 
-            if (discoveredCharacteristics.length > 0) {
-                targetCharacteristic = discoveredCharacteristics[0];
+            if (targetCharacteristic) {
                 statusDiv.innerText = `Connected: ${bleDevice.name}`;
-                enableControls(true);
-                log(`Selected initial write char: ${targetCharacteristic.uuid}`);
+                colorPicker.disabled = false;
+                connectBtn.style.display = 'none';
+                log(`Locked onto characteristic: ${targetCharacteristic.uuid}`);
             } else {
-                log("No writeable characteristics discovered!");
+                log("Error: No writeable characteristic found!");
             }
 
         } catch (error) {
@@ -228,43 +172,18 @@
         }
     });
 
-    charSelect.addEventListener('change', (e) => {
-        targetCharacteristic = discoveredCharacteristics[e.target.value];
-        log(`Switched target char to: ${targetCharacteristic.uuid}`);
-    });
+    // Color Picker Action (Sends standard MagicLight / generic RGB packet structure)
+    colorPicker.addEventListener('input', async (e) => {
+        const hex = e.target.value;
+        const r = parseInt(hex.substring(1, 3), 16);
+        const g = parseInt(hex.substring(3, 5), 16);
+        const b = parseInt(hex.substring(5, 7), 16);
 
-    function enableControls(enable) {
-        brightnessSlider.disabled = !enable;
-        customHexInput.disabled = !enable;
-        sendHexBtn.disabled = !enable;
-        charSelect.disabled = !enable;
-        btnP1.disabled = !enable;
-        btnP2.disabled = !enable;
-        btnP3.disabled = !enable;
-        btnP4.disabled = !enable;
-    }
-
-    // PWM Slider test (0x53 Header)
-    brightnessSlider.addEventListener('input', async (e) => {
-        const val = parseInt(e.target.value);
-        await sendBytes(new Uint8Array([0x53, val, 0x00, 0xef]));
-    });
-
-    // Preset tests
-    btnP1.addEventListener('click', () => sendBytes(new Uint8Array([0x56, 0xff, 0xff, 0xff, 0x00, 0xf0, 0xaa])));
-    btnP2.addEventListener('click', () => sendBytes(new Uint8Array([0x7e, 0x07, 0x05, 0x03, 0xff, 0xff, 0xff, 0x00, 0xef])));
-    btnP3.addEventListener('click', () => sendBytes(new Uint8Array([0xcc, 0x23, 0x33])));
-    btnP4.addEventListener('click', () => sendBytes(new Uint8Array([0xaa, 0x01, 0x00, 0x55])));
-
-    // Custom Hex Sender
-    sendHexBtn.addEventListener('click', async () => {
-        const raw = customHexInput.value.trim().replace(/[^0-9a-fA-F]/g, '');
-        if (!raw || raw.length % 2 !== 0) {
-            log("Invalid hex string!");
-            return;
-        }
-        const bytes = new Uint8Array(raw.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-        await sendBytes(bytes);
+        // Standard 9-byte structure that usually triggers the color routine (which caused your cyan flash)
+        // Let's format it cleanly: [0x7E, Length, Command, Subcommand, R, G, B, White/Reserved, Checksum/End]
+        const packet = new Uint8Array([0x7E, 0x07, 0x05, 0x03, r, g, b, 0x00, 0xEF]);
+        
+        await sendBytes(packet);
     });
 
     async function sendBytes(byteArray) {
@@ -277,7 +196,7 @@
             }
             log(`TX -> [${Array.from(byteArray).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
         } catch (err) {
-            log(`Write Error: ${err}`);
+            log(`Write error: ${err}`);
         }
     }
 </script>
