@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MR Star Direct Byte Finder</title>
+    <title>MR Star Hue Byte Tester</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -60,7 +60,7 @@
         .btn-connect { background: #10b981; color: white; }
         .btn-on { background: #22c55e; color: white; }
         .btn-off { background: #ef4444; color: white; }
-        .btn-test { background: #3b82f6; color: white; }
+        .btn-test { background: #8b5cf6; color: white; }
 
         .control-group {
             margin: 16px 0;
@@ -88,7 +88,7 @@
 <body>
 
 <div class="container">
-    <h1>MR Star Byte Finder</h1>
+    <h1>MR Star Hue Tester</h1>
     <div id="status" class="status-badge">Status: Disconnected</div>
 
     <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
@@ -99,11 +99,11 @@
     </div>
 
     <div class="control-group">
-        <label>Quick Preset Color Tests (Testing index bytes):</label>
-        <button class="btn btn-test" onclick="sendColorIndex(0x85)" id="t1" disabled>Test Index 0x85 (Red-ish from Log)</button>
-        <button class="btn btn-test" onclick="sendColorIndex(0x1C)" id="t2" disabled>Test Index 0x1C (Green-ish from Log)</button>
-        <button class="btn btn-test" onclick="sendColorIndex(0x22)" id="t3" disabled>Test Index 0x22 (Blue-ish from Log)</button>
-        <button class="btn btn-test" onclick="sendColorIndex(0x00)" id="t4" disabled>Test Index 0x00 (Zero State)</button>
+        <label>Test Color Wheel Byte (Byte Index 6):</label>
+        <button class="btn btn-test" onclick="sendHueByte(0x00)" id="h1" disabled>Test Hue 0x00</button>
+        <button class="btn btn-test" onclick="sendHueByte(0x50)" id="h2" disabled>Test Hue 0x50</button>
+        <button class="btn btn-test" onclick="sendHueByte(0xA0)" id="h3" disabled>Test Hue 0xA0</button>
+        <button class="btn btn-test" onclick="sendHueByte(0xFF)" id="h4" disabled>Test Hue 0xFF</button>
     </div>
 
     <h3>BLE Packet Log</h3>
@@ -154,10 +154,10 @@
                 statusDiv.innerText = `Connected: ${bleDevice.name}`;
                 powerOnBtn.disabled = false;
                 powerOffBtn.disabled = false;
-                document.getElementById('t1').disabled = false;
-                document.getElementById('t2').disabled = false;
-                document.getElementById('t3').disabled = false;
-                document.getElementById('t4').disabled = false;
+                document.getElementById('h1').disabled = false;
+                document.getElementById('h2').disabled = false;
+                document.getElementById('h3').disabled = false;
+                document.getElementById('h4').disabled = false;
                 connectBtn.style.display = 'none';
                 log(`Connected successfully!`);
             }
@@ -176,11 +176,11 @@
         log("Power OFF sent");
     });
 
-    async function sendColorIndex(indexVal) {
-        // Replicating the exact packet layout from frames 329/352/369 using test index bytes
-        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, indexVal, 0x03, 0x85, 0x00, 0x00, 0x55]);
+    async function sendHueByte(hueVal) {
+        // Testing changing the 7th byte position (index 6) which was 0x85 / 0x38 / 0xe0 in the logs
+        const packet = new Uint8Array([0xbc, 0x04, 0x06, 0x00, 0x00, 0x03, hueVal, 0x00, 0x00, 0x55]);
         await sendBytes(packet);
-        log(`Sent color index test: 0x${indexVal.toString(16).padStart(2, '0')}`);
+        log(`Sent Hue test byte: 0x${hueVal.toString(16).padStart(2, '0')}`);
     }
 
     async function sendBytes(byteArray) {
