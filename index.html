@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neon Rope Light Dimmer Controller</title>
+    <title>GATT--DEMO Tester</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -21,14 +21,14 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            padding: 20px;
+            padding: 16px;
             box-sizing: border-box;
         }
 
         .container {
             background: var(--card);
             border-radius: 16px;
-            padding: 24px;
+            padding: 20px;
             width: 100%;
             max-width: 480px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
@@ -36,7 +36,7 @@
         }
 
         h1 {
-            font-size: 1.4rem;
+            font-size: 1.3rem;
             margin-top: 0;
             text-align: center;
             color: var(--accent);
@@ -44,60 +44,64 @@
 
         .status-badge {
             text-align: center;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             padding: 6px 12px;
             border-radius: 20px;
             background: #334155;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
 
         .btn {
             width: 100%;
             padding: 12px;
-            margin: 8px 0;
+            margin: 6px 0;
             border: none;
             border-radius: 8px;
             font-weight: bold;
-            font-size: 1rem;
+            font-size: 0.95rem;
             cursor: pointer;
             transition: all 0.2s ease;
         }
 
         .btn-connect { background: #10b981; color: white; }
-        .btn-connect:hover { background: #059669; }
-
         .btn-power { background: #ef4444; color: white; }
-        .btn-power:hover { background: #dc2626; }
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 12px 0;
+        }
 
-        .btn-mode { background: #6366f1; color: white; }
-        .btn-mode:hover { background: #4f46e5; }
+        .btn-test { background: #6366f1; color: white; font-size: 0.85rem; padding: 10px; }
 
         .control-group {
-            margin: 20px 0;
+            margin: 12px 0;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
         }
 
-        label {
-            font-size: 0.9rem;
-            font-weight: bold;
-        }
+        label { font-size: 0.85rem; font-weight: bold; }
 
-        input[type="range"] {
+        input, select {
             width: 100%;
-            cursor: pointer;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: white;
+            box-sizing: border-box;
         }
 
         #log {
             background: #020617;
             border: 1px solid #1e293b;
             border-radius: 8px;
-            padding: 12px;
-            height: 140px;
+            padding: 10px;
+            height: 160px;
             overflow-y: auto;
             font-family: monospace;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: #a7f3d0;
             white-space: pre-wrap;
         }
@@ -106,34 +110,58 @@
 <body>
 
 <div class="container">
-    <h1>GATT--DEMO Dimmer</h1>
+    <h1>GATT--DEMO Tester</h1>
     <div id="status" class="status-badge">Status: Disconnected</div>
 
-    <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
+    <button id="connectBtn" class="btn btn-connect">Connect & Probe BLE Services</button>
 
     <div class="control-group">
-        <label for="brightnessSlider">Brightness / Intensity:</label>
+        <label for="charSelect">Discovered Write Characteristic:</label>
+        <select id="charSelect" disabled><option>Connect to populate...</option></select>
+    </div>
+
+    <div class="control-group">
+        <label for="brightnessSlider">PWM Brightness Level (0-255):</label>
         <input type="range" id="brightnessSlider" min="0" max="255" value="255" disabled>
     </div>
 
-    <button id="togglePowerBtn" class="btn btn-power" disabled>Toggle Power (On/Off)</button>
-    <button id="modeBtn" class="btn btn-mode" disabled>Cycle Pattern / Mode</button>
+    <label>Quick Protocol Payload Tests:</label>
+    <div class="btn-grid">
+        <button id="btnP1" class="btn btn-test" disabled>Format 1 (0x56 PWM)</button>
+        <button id="btnP2" class="btn btn-test" disabled>Format 2 (0x7E RGB)</button>
+        <button id="btnP3" class="btn btn-test" disabled>Format 3 (0xCC Toggle)</button>
+        <button id="btnP4" class="btn btn-test" disabled>Format 4 (0xAA Single)</button>
+    </div>
+
+    <div class="control-group">
+        <label for="customHex">Send Custom Hex String (e.g. 53 ff 00 ef):</label>
+        <div style="display:flex; gap:8px;">
+            <input type="text" id="customHex" placeholder="53 ff 00 ef" disabled>
+            <button id="sendHexBtn" class="btn btn-test" style="width: auto; padding: 0 16px;" disabled>Send</button>
+        </div>
+    </div>
 
     <h3>BLE Packet Log</h3>
-    <div id="log">Click "Connect" to scan for GATT--DEMO...</div>
+    <div id="log">Ready to connect...</div>
 </div>
 
 <script>
     let bleDevice = null;
     let targetCharacteristic = null;
-    let isPowerOn = true;
+    let discoveredCharacteristics = [];
 
     const connectBtn = document.getElementById('connectBtn');
+    const charSelect = document.getElementById('charSelect');
     const brightnessSlider = document.getElementById('brightnessSlider');
-    const togglePowerBtn = document.getElementById('togglePowerBtn');
-    const modeBtn = document.getElementById('modeBtn');
+    const customHexInput = document.getElementById('customHex');
+    const sendHexBtn = document.getElementById('sendHexBtn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
+
+    const btnP1 = document.getElementById('btnP1');
+    const btnP2 = document.getElementById('btnP2');
+    const btnP3 = document.getElementById('btnP3');
+    const btnP4 = document.getElementById('btnP4');
 
     function log(msg) {
         logDiv.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -142,25 +170,57 @@
 
     connectBtn.addEventListener('click', async () => {
         try {
-            log("Scanning for BLE devices...");
+            log("Opening BLE Browser Picker...");
+            
+            // acceptAllDevices avoids UUID formatting syntax errors completely
             bleDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'GATT--' }],
-                optionalServices: ['000fff0-0000-1000-8000-00805f9b34fb']
+                acceptAllDevices: true,
+                optionalServices: [
+                    '0000fff0-0000-1000-8000-00805f9b34fb',
+                    '0000ffe0-0000-1000-8000-00805f9b34fb',
+                    '0000ffd0-0000-1000-8000-00805f9b34fb',
+                    '0000180a-0000-1000-8000-00805f9b34fb'
+                ]
             });
 
-            log(`Found: ${bleDevice.name}`);
+            log(`Device picked: ${bleDevice.name || 'Unnamed Device'}`);
             statusDiv.innerText = `Connecting...`;
 
             const server = await bleDevice.gatt.connect();
-            const service = await server.getPrimaryService('000fff0-0000-1000-8000-00805f9b34fb');
-            targetCharacteristic = await service.getCharacteristic('000fff3-0000-1000-8000-00805f9b34fb');
+            log("GATT Server connected! Querying services...");
 
-            log("--> Connected & locked onto write characteristic!");
-            statusDiv.innerText = `Connected: ${bleDevice.name}`;
-            brightnessSlider.disabled = false;
-            togglePowerBtn.disabled = false;
-            modeBtn.disabled = false;
-            connectBtn.style.display = 'none';
+            const services = await server.getPrimaryServices();
+            charSelect.innerHTML = '';
+            discoveredCharacteristics = [];
+
+            for (const service of services) {
+                log(`Service: ${service.uuid}`);
+                try {
+                    const chars = await service.getCharacteristics();
+                    for (const char of chars) {
+                        const canWrite = char.properties.write || char.properties.writeWithoutResponse;
+                        log(` - Char: ${char.uuid} (Writeable: ${canWrite})`);
+                        if (canWrite) {
+                            discoveredCharacteristics.push(char);
+                            const opt = document.createElement('option');
+                            opt.value = discoveredCharacteristics.length - 1;
+                            opt.innerText = `${char.uuid.substring(0, 8)}... (${char.properties.writeWithoutResponse ? 'NoResp' : 'Write'})`;
+                            charSelect.appendChild(opt);
+                        }
+                    }
+                } catch(e) {
+                    log(` Could not inspect chars for ${service.uuid}`);
+                }
+            }
+
+            if (discoveredCharacteristics.length > 0) {
+                targetCharacteristic = discoveredCharacteristics[0];
+                statusDiv.innerText = `Connected: ${bleDevice.name}`;
+                enableControls(true);
+                log(`Selected initial write char: ${targetCharacteristic.uuid}`);
+            } else {
+                log("No writeable characteristics discovered!");
+            }
 
         } catch (error) {
             log(`Error: ${error}`);
@@ -168,34 +228,43 @@
         }
     });
 
-    // Brightness Slider Control (Sends varying intensity bytes)
+    charSelect.addEventListener('change', (e) => {
+        targetCharacteristic = discoveredCharacteristics[e.target.value];
+        log(`Switched target char to: ${targetCharacteristic.uuid}`);
+    });
+
+    function enableControls(enable) {
+        brightnessSlider.disabled = !enable;
+        customHexInput.disabled = !enable;
+        sendHexBtn.disabled = !enable;
+        charSelect.disabled = !enable;
+        btnP1.disabled = !enable;
+        btnP2.disabled = !enable;
+        btnP3.disabled = !enable;
+        btnP4.disabled = !enable;
+    }
+
+    // PWM Slider test (0x53 Header)
     brightnessSlider.addEventListener('input', async (e) => {
         const val = parseInt(e.target.value);
-        
-        // Testing common single-channel PWM framing variants:
-        // Variant A: [Header, BrightnessValue, Footer] -> e.g., 0x53 or 0xbb
-        const packet = new Uint8Array([0x53, val, 0x00, 0xef]);
-        
-        await sendBytes(packet);
+        await sendBytes(new Uint8Array([0x53, val, 0x00, 0xef]));
     });
 
-    // Power Toggle Button
-    togglePowerBtn.addEventListener('click', async () => {
-        isPowerOn = !isPowerOn;
-        const val = isPowerOn ? 255 : 0;
-        
-        // Send power-state byte packet
-        const packet = new Uint8Array([0x53, val, 0x00, 0xef]);
-        await sendBytes(packet);
-        log(`Power toggled: ${isPowerOn ? 'ON' : 'OFF'}`);
-    });
+    // Preset tests
+    btnP1.addEventListener('click', () => sendBytes(new Uint8Array([0x56, 0xff, 0xff, 0xff, 0x00, 0xf0, 0xaa])));
+    btnP2.addEventListener('click', () => sendBytes(new Uint8Array([0x7e, 0x07, 0x05, 0x03, 0xff, 0xff, 0xff, 0x00, 0xef])));
+    btnP3.addEventListener('click', () => sendBytes(new Uint8Array([0xcc, 0x23, 0x33])));
+    btnP4.addEventListener('click', () => sendBytes(new Uint8Array([0xaa, 0x01, 0x00, 0x55])));
 
-    // Pattern/Mode Cycle Button (simulates pressing the physical button on the board)
-    modeBtn.addEventListener('click', async () => {
-        // Common trigger bytes for hardware flashing modes
-        const packet = new Uint8Array([0xbb, 0x01, 0x01, 0x44]);
-        await sendBytes(packet);
-        log("Cycle pattern command sent.");
+    // Custom Hex Sender
+    sendHexBtn.addEventListener('click', async () => {
+        const raw = customHexInput.value.trim().replace(/[^0-9a-fA-F]/g, '');
+        if (!raw || raw.length % 2 !== 0) {
+            log("Invalid hex string!");
+            return;
+        }
+        const bytes = new Uint8Array(raw.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        await sendBytes(bytes);
     });
 
     async function sendBytes(byteArray) {
@@ -206,9 +275,9 @@
             } else {
                 await targetCharacteristic.writeValueWithResponse(byteArray);
             }
-            log(`TX: [${Array.from(byteArray).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
+            log(`TX -> [${Array.from(byteArray).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
         } catch (err) {
-            log(`Write failed: ${err}`);
+            log(`Write Error: ${err}`);
         }
     }
 </script>
