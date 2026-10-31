@@ -3,231 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MR Star Master Controller</title>
+    <title>Light Control</title>
     <style>
-        :root {
-            --bg: #0f172a;
-            --card: #1e293b;
-            --accent: #38bdf8;
-            --text: #f8fafc;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
+            font-family: Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
+            height: 100vh;
             margin: 0;
-            padding: 16px;
-            box-sizing: border-box;
+            background-color: #f4f4f9;
         }
-
         .container {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 20px;
-            width: 100%;
-            max-width: 480px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            border: 1px solid #334155;
-        }
-
-        h1 { font-size: 1.3rem; margin-top: 0; text-align: center; color: var(--accent); }
-
-        .status-badge {
             text-align: center;
-            font-size: 0.85rem;
-            padding: 6px 12px;
-            border-radius: 20px;
-            background: #334155;
-            margin-bottom: 16px;
+            background: #ffffff;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
-
+        h1 {
+            margin-bottom: 1.5rem;
+            color: #333;
+        }
         .btn {
-            width: 100%;
-            padding: 12px;
-            margin: 6px 0;
-            border: none;
-            border-radius: 8px;
+            font-size: 1.2rem;
             font-weight: bold;
-            font-size: 0.95rem;
-            cursor: pointer;
-        }
-
-        .btn-connect { background: #10b981; color: white; }
-        .btn-on { background: #22c55e; color: white; }
-        .btn-off { background: #ef4444; color: white; }
-
-        .control-group {
-            margin: 16px 0;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        label { font-size: 0.9rem; font-weight: bold; color: #94a3b8; }
-
-        input[type="color"] {
-            -webkit-appearance: none;
+            padding: 12px 24px;
+            margin: 0 10px;
             border: none;
-            width: 100%;
-            height: 50px;
-            border-radius: 8px;
+            border-radius: 6px;
             cursor: pointer;
-            background: transparent;
+            transition: opacity 0.2s;
         }
-
-        input[type="range"] {
-            width: 100%;
-            cursor: pointer;
+        .btn:hover {
+            opacity: 0.85;
         }
-
-        #log {
-            background: #020617;
-            border: 1px solid #1e293b;
-            border-radius: 8px;
-            padding: 10px;
-            height: 130px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 0.75rem;
-            color: #a7f3d0;
-            white-space: pre-wrap;
+        .btn-on {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .btn-off {
+            background-color: #f44336;
+            color: white;
         }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>MR Star Master Controller</h1>
-    <div id="status" class="status-badge">Status: Disconnected</div>
-
-    <button id="connectBtn" class="btn btn-connect">Connect to GATT--DEMO</button>
-
-    <div style="display: flex; gap: 8px; margin: 10px 0;">
-        <button id="powerOnBtn" class="btn btn-on" disabled>Power ON</button>
-        <button id="powerOffBtn" class="btn btn-off" disabled>Power OFF</button>
+    <div class="container">
+        <h1>Light Control</h1>
+        <button class="btn btn-on" onclick="controlLight('http://192.168.1.103/all/on')">Turn ON</button>
+        <button class="btn btn-off" onclick="controlLight('http://192.168.1.103/all/off')">Turn OFF</button>
     </div>
 
-    <div class="control-group">
-        <label for="colorPicker">RGB / Color Intensity (Slot 2):</label>
-        <input type="color" id="colorPicker" value="#ff0000" disabled>
-    </div>
-
-    <div class="control-group">
-        <label for="whiteSlider">Pure White Channel Level (Slot 4): <span id="whiteVal">0</span></label>
-        <input type="range" id="whiteSlider" min="0" max="255" value="0" disabled>
-    </div>
-
-    <h3>BLE Packet Log</h3>
-    <div id="log">Click connect to start...</div>
-</div>
-
-<script>
-    let bleDevice = null;
-    let targetCharacteristic = null;
-    let currentColorByte = 0x85;
-    let currentWhiteByte = 0x00;
-
-    const connectBtn = document.getElementById('connectBtn');
-    const colorPicker = document.getElementById('colorPicker');
-    const whiteSlider = document.getElementById('whiteSlider');
-    const whiteVal = document.getElementById('whiteVal');
-    const powerOnBtn = document.getElementById('powerOnBtn');
-    const powerOffBtn = document.getElementById('powerOffBtn');
-    const statusDiv = document.getElementById('status');
-    const logDiv = document.getElementById('log');
-
-    function log(msg) {
-        logDiv.innerText += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
-        logDiv.scrollTop = logDiv.scrollHeight;
-    }
-
-    connectBtn.addEventListener('click', async () => {
-        try {
-            log("Scanning for device...");
-            bleDevice = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,
-                optionalServices: [
-                    '0000fff0-0000-1000-8000-00805f9b34fb',
-                    '0000ffe0-0000-1000-8000-00805f9b34fb'
-                ]
-            });
-
-            const server = await bleDevice.gatt.connect();
-            const services = await server.getPrimaryServices();
-
-            for (const service of services) {
-                const chars = await service.getCharacteristics();
-                for (const char of chars) {
-                    if (char.uuid.includes('fff3') || char.properties.write || char.properties.writeWithoutResponse) {
-                        targetCharacteristic = char;
-                        break;
-                    }
-                }
-                if (targetCharacteristic) break;
-            }
-
-            if (targetCharacteristic) {
-                statusDiv.innerText = `Connected: ${bleDevice.name}`;
-                colorPicker.disabled = false;
-                whiteSlider.disabled = false;
-                powerOnBtn.disabled = false;
-                powerOffBtn.disabled = false;
-                connectBtn.style.display = 'none';
-                log(`Connected successfully to handle 0x0003!`);
-            }
-        } catch (error) {
-            log(`Error: ${error}`);
+    <script>
+        function controlLight(url) {
+            // mode: 'no-cors' prevents CORS blocking if the light's web server doesn't send CORS headers
+            fetch(url, { mode: 'no-cors' })
+                .then(() => console.log(`Request sent to ${url}`))
+                .catch(error => console.error('Error sending request:', error));
         }
-    });
+    </script>
 
-    powerOnBtn.addEventListener('click', async () => {
-        await sendBytes(new Uint8Array([0xbc, 0x01, 0x01, 0x01, 0x55]));
-        log("Power ON sent");
-    });
-
-    powerOffBtn.addEventListener('click', async () => {
-        await sendBytes(new Uint8Array([0xbc, 0x01, 0x01, 0x00, 0x55]));
-        log("Power OFF sent");
-    });
-
-    colorPicker.addEventListener('input', (e) => {
-        const hex = e.target.value;
-        const r = parseInt(hex.substring(1, 3), 16);
-        currentColorByte = r;
-        sendCombinedPacket();
-    });
-
-    whiteSlider.addEventListener('input', (e) => {
-        currentWhiteByte = parseInt(e.target.value);
-        whiteVal.innerText = currentWhiteByte;
-        sendCombinedPacket();
-    });
-
-    async function sendCombinedPacket() {
-        // Constructing packet using Slot 2 (index 5) and Slot 4 (index 7) based on your hardware layout tests
-        let packet = [0xbc, 0x04, 0x06, 0x00, 0xbc, currentColorByte, 0x85, currentWhiteByte, 0x00, 0x55];
-        const byteArray = new Uint8Array(packet);
-        await sendBytes(byteArray);
-        log(`Color: 0x${currentColorByte.toString(16)}, White: ${currentWhiteByte}`);
-    }
-
-    async function sendBytes(byteArray) {
-        if (!targetCharacteristic) return;
-        try {
-            if (targetCharacteristic.properties.writeWithoutResponse) {
-                await targetCharacteristic.writeValueWithoutResponse(byteArray);
-            } else {
-                await targetCharacteristic.writeValueWithResponse(byteArray);
-            }
-        } catch (err) {
-            log(`Write error: ${err}`);
-        }
-    }
-</script>
 </body>
 </html>
