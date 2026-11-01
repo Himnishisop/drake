@@ -1,69 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Light Control</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f4f4f9;
-        }
-        .container {
-            text-align: center;
-            background: #ffffff;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            margin-bottom: 1.5rem;
-            color: #333;
-        }
-        .btn {
-            font-size: 1.2rem;
-            font-weight: bold;
-            padding: 12px 24px;
-            margin: 0 10px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        .btn:hover {
-            opacity: 0.85;
-        }
-        .btn-on {
-            background-color: #4CAF50;
-            color: white;
-        }
-        .btn-off {
-            background-color: #f44336;
-            color: white;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Instant Light Control</title>
+  <style>
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 5px;
+    }
+    #status {
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      color: #94a3b8;
+    }
+    .card {
+      background: #1e293b;
+      padding: 15px;
+      margin: 12px auto;
+      max-width: 400px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      border: 1px solid #334155;
+    }
+    .card h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+      color: #cbd5e1;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+    }
+    button {
+      flex: 1;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #fff;
+      transition: opacity 0.1s, transform 0.1s;
+    }
+    button:active {
+      opacity: 0.7;
+      transform: scale(0.98);
+    }
+    .on { background: #22c55e; }
+    .off { background: #ef4444; }
+    .master-on { background: #3b82f6; }
+    .master-off { background: #475569; }
+  </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>Light Control</h1>
-        <button class="btn btn-on" onclick="controlLight('http://192.168.1.160/all/on')">Turn ON</button>
-        <button class="btn btn-off" onclick="controlLight('http://192.168.1.160/all/off')">Turn OFF</button>
+  <h1>⚡ Instant ESP32 Light Panel</h1>
+  <div id="status">Connecting to ESP32 WebSocket...</div>
+  
+  <div class="card">
+    <h3>Master Controls</h3>
+    <div class="btn-group">
+      <button class="master-on" onclick="send('all_on')">ALL ON</button>
+      <button class="master-off" onclick="send('all_off')">ALL OFF</button>
     </div>
+  </div>
 
-    <script>
-        function controlLight(url) {
-            // mode: 'no-cors' prevents CORS blocking if the light's web server doesn't send CORS headers
-            fetch(url, { mode: 'no-cors' })
-                .then(() => console.log(`Request sent to ${url}`))
-                .catch(error => console.error('Error sending request:', error));
-        }
-    </script>
+  <div class="card">
+    <h3>ELK-BLEDOB</h3>
+    <div class="btn-group">
+      <button class="on" onclick="send('elk_on')">ON</button>
+      <button class="off" onclick="send('elk_off')">OFF</button>
+    </div>
+  </div>
 
+  <div class="card">
+    <h3>GATT--DEMO</h3>
+    <div class="btn-group">
+      <button class="on" onclick="send('gatt_on')">ON</button>
+      <button class="off" onclick="send('gatt_off')">OFF</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>CLK-BLEDDM</h3>
+    <div class="btn-group">
+      <button class="on" onclick="send('clk_on')">ON</button>
+      <button class="off" onclick="send('clk_off')">OFF</button>
+    </div>
+  </div>
+
+  <script>
+    // Hardcoded to your ESP32 static IP so you can open this file locally anywhere on your Wi-Fi
+    const gateway = 'ws://192.168.1.160/ws';
+    let websocket;
+    const statusEl = document.getElementById('status');
+
+    function initWebSocket() {
+      websocket = new WebSocket(gateway);
+      
+      websocket.onopen = function(event) {
+        statusEl.innerText = "Status: Connected (Instant WebSocket Live)";
+        statusEl.style.color = "#22c55e";
+      };
+      
+      websocket.onclose = function(event) {
+        statusEl.innerText = "Status: Disconnected. Reconnecting in 2s...";
+        statusEl.style.color = "#ef4444";
+        setTimeout(initWebSocket, 2000);
+      };
+      
+      websocket.onerror = function(error) {
+        console.log("WebSocket Error: ", error);
+      };
+    }
+
+    function send(command) {
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(command);
+      } else {
+        alert("WebSocket is not connected to ESP32 right now!");
+      }
+    }
+
+    window.addEventListener('load', initWebSocket);
+  </script>
 </body>
 </html>
