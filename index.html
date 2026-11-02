@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Light Control Panel</title>
+    <title>Global ESP32 Light Control</title>
     <style>
         body { background: #0f0f0f; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
-        h1 { margin-bottom: 20px; }
         .card { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin: 15px auto; max-width: 400px; }
         button { padding: 12px 20px; margin: 5px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; }
         .btn-on { background: #22c55e; }
@@ -16,45 +15,47 @@
 </head>
 <body>
 
-    <h1>ESP32 RGB Command Center</h1>
+    <h1>Global Light Dashboard</h1>
 
-    <!-- Master Controls -->
     <div class="card">
         <h3>Master Control</h3>
-        <button class="btn-all" onclick="sendCmd('all/on')">ALL ON</button>
-        <button class="btn-all" onclick="sendCmd('all/off')">ALL OFF</button>
+        <button class="btn-all" onclick="sendMQTT('esp32-all', 'ON')">ALL ON</button>
+        <button class="btn-all" onclick="sendMQTT('esp32-all', 'OFF')">ALL OFF</button>
     </div>
 
-    <!-- ELK-BLEDOB -->
     <div class="card">
         <h3>ELK-BLEDOB</h3>
-        <button class="btn-on" onclick="sendCmd('elk/on')">ON</button>
-        <button class="btn-off" onclick="sendCmd('elk/off')">OFF</button>
+        <button class="btn-on" onclick="sendMQTT('esp32-elk', 'ON')">ON</button>
+        <button class="btn-off" onclick="sendMQTT('esp32-elk', 'OFF')">OFF</button>
     </div>
 
-    <!-- GATT--DEMO -->
     <div class="card">
         <h3>GATT--DEMO</h3>
-        <button class="btn-on" onclick="sendCmd('gattdemo/on')">ON</button>
-        <button class="btn-off" onclick="sendCmd('gattdemo/off')">OFF</button>
+        <button class="btn-on" onclick="sendMQTT('esp32-gatt', 'ON')">ON</button>
+        <button class="btn-off" onclick="sendMQTT('esp32-gatt', 'OFF')">OFF</button>
     </div>
 
-    <!-- CLK-BLEDDM -->
     <div class="card">
         <h3>CLK-BLEDDM</h3>
-        <button class="btn-on" onclick="sendCmd('clk/on')">ON</button>
-        <button class="btn-off" onclick="sendCmd('clk/off')">OFF</button>
+        <button class="btn-on" onclick="sendMQTT('esp32-clk', 'ON')">ON</button>
+        <button class="btn-off" onclick="sendMQTT('esp32-clk', 'OFF')">OFF</button>
     </div>
 
     <script>
-        // Change this to your ESP32's static IP address
-        const espIP = "http://192.168.1.160";
+        const AIO_USERNAME = "himnishisop";
+        const AIO_KEY = "aio_LoKX42iKepwGpxiY8IZ3tHUgvBWW";
 
-        function sendCmd(endpoint) {
-            // Uses 'no-cors' mode or simple fetch to fire and forget instantly without waiting for heavy responses
-            fetch(`${espIP}/${endpoint}`, { method: 'GET', mode: 'no-cors' })
-                .then(() => console.log(`Command sent: ${endpoint}`))
-                .catch(err => console.error("Error sending command:", err));
+        function sendMQTT(feed, value) {
+            fetch(`https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feed}/data`, {
+                method: 'POST',
+                headers: {
+                    'X-AIO-Key': AIO_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ value: value })
+            })
+            .then(response => console.log(`Sent ${value} to ${feed}`))
+            .catch(err => console.error("Error:", err));
         }
     </script>
 
