@@ -1,63 +1,181 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global ESP32 Light Control</title>
-    <style>
-        body { background: #0f0f0f; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
-        .card { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin: 15px auto; max-width: 400px; }
-        button { padding: 12px 20px; margin: 5px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; }
-        .btn-on { background: #22c55e; }
-        .btn-off { background: #ef4444; }
-        .btn-all { background: #3b82f6; width: 40%; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Edge-TTS Direct WebSocket Tester</title>
+  <style>
+    body {
+      background-color: #0d0d0d;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 30px;
+      width: 450px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    h2 {
+      margin-top: 0;
+      color: #ff3333;
+      font-size: 1.4rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    label {
+      font-size: 0.85rem;
+      color: #aaa;
+      display: block;
+      margin-top: 15px;
+      margin-bottom: 5px;
+    }
+    select, textarea, button {
+      width: 100%;
+      background: #0d0d0d;
+      border: 1px solid #333;
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-size: 0.95rem;
+    }
+    textarea {
+      height: 100px;
+      resize: none;
+    }
+    button {
+      margin-top: 20px;
+      background: #b30000;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #e60000;
+    }
+    #status {
+      margin-top: 15px;
+      font-size: 0.85rem;
+      color: #888;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
 
-    <h1>Global Light Dashboard</h1>
+<div class="card">
+  <h2>Edge-TTS Direct Tester</h2>
+  
+  <label for="voice">Select Neural Voice:</label>
+  <select id="voice">
+    <option value="en-US-ChristopherNeural">en-US-ChristopherNeural (Deep Male)</option>
+    <option value="en-US-GuyNeural">en-US-GuyNeural (Standard Male)</option>
+    <option value="en-US-EricNeural">en-US-EricNeural (Casual Male)</option>
+    <option value="en-US-AriaNeural">en-US-AriaNeural (Female)</option>
+  </select>
 
-    <div class="card">
-        <h3>Master Control</h3>
-        <button class="btn-all" onclick="sendMQTT('esp32-all', 'ON')">ALL ON</button>
-        <button class="btn-all" onclick="sendMQTT('esp32-all', 'OFF')">ALL OFF</button>
-    </div>
+  <label for="textInput">Text to Synthesize:</label>
+  <textarea id="textInput">Yo, system check complete. Running direct Microsoft Neural TTS over raw WebSockets.</textarea>
 
-    <div class="card">
-        <h3>ELK-BLEDOB</h3>
-        <button class="btn-on" onclick="sendMQTT('esp32-elk', 'ON')">ON</button>
-        <button class="btn-off" onclick="sendMQTT('esp32-elk', 'OFF')">OFF</button>
-    </div>
+  <button onclick="synthesizeAndPlay()">Speak Voice</button>
+  <div id="status">Status: Idle</div>
+</div>
 
-    <div class="card">
-        <h3>GATT--DEMO</h3>
-        <button class="btn-on" onclick="sendMQTT('esp32-gatt', 'ON')">ON</button>
-        <button class="btn-off" onclick="sendMQTT('esp32-gatt', 'OFF')">OFF</button>
-    </div>
+<script>
+  // Microsoft Edge Public Trusted Client Token
+  const TRUSTED_TOKEN = "6A5AA1D4EA634E776168633038E5601A";
+  const WS_URL = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_TOKEN}`;
 
-    <div class="card">
-        <h3>CLK-BLEDDM</h3>
-        <button class="btn-on" onclick="sendMQTT('esp32-clk', 'ON')">ON</button>
-        <button class="btn-off" onclick="sendMQTT('esp32-clk', 'OFF')">OFF</button>
-    </div>
+  async function synthesizeAndPlay() {
+    const text = document.getElementById("textInput").value;
+    const voice = document.getElementById("voice").value;
+    const status = document.getElementById("status");
 
-    <script>
-        const AIO_USERNAME = "himnishisop";
-        const AIO_KEY = "aio_LoKX42iKepwGpxiY8IZ3tHUgvBWW";
+    if (!text) return;
 
-        function sendMQTT(feed, value) {
-            fetch(`https://io.adafruit.com/api/v2/${AIO_USERNAME}/feeds/${feed}/data`, {
-                method: 'POST',
-                headers: {
-                    'X-AIO-Key': AIO_KEY,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ value: value })
-            })
-            .then(response => console.log(`Sent ${value} to ${feed}`))
-            .catch(err => console.error("Error:", err));
+    status.innerText = "Connecting to Microsoft WebSocket...";
+
+    const ws = new WebSocket(WS_URL);
+    ws.binaryType = "arraybuffer";
+
+    let audioChunks = [];
+
+    ws.onopen = () => {
+      status.innerText = "Connected! Sending SSML config...";
+
+      // 1. Send Configuration Frame
+      const configHeader = "Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n";
+      const configPayload = JSON.stringify({
+        context: {
+          synthesis: {
+            audio: {
+              metadataVersion: "2.0000",
+              outputFormat: "audio-24khz-48kbitrate-mono-mp3"
+            }
+          }
         }
-    </script>
+      });
+      ws.send(configHeader + configPayload);
+
+      // 2. Send SSML Text Synthesis Frame
+      const requestId = [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+      const ssml = `
+        <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+          <voice name='${voice}'>
+            <prosody pitch='+0Hz' rate='+0%' volume='+0%'>
+              ${text}
+            </prosody>
+          </voice>
+        </speak>
+      `.trim();
+
+      const ssmlHeader = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n`;
+      ws.send(ssmlHeader + ssml);
+      
+      status.innerText = "Receiving audio stream...";
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === "string") {
+        // Message is header string text or turn end signal
+        if (event.data.includes("Path:turn.end")) {
+          status.innerText = "Audio received. Playing...";
+          ws.close();
+          playAudio(audioChunks);
+        }
+      } else if (event.data instanceof ArrayBuffer) {
+        // Message contains binary MP3 audio chunk
+        const view = new DataView(event.data);
+        const headerLength = view.getUint16(0);
+        const audioData = event.data.slice(2 + headerLength);
+        audioChunks.push(audioData);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket Error: ", err);
+      status.innerText = "Error connecting to Edge TTS API.";
+    };
+  }
+
+  function playAudio(chunks) {
+    const blob = new Blob(chunks, { type: "audio/mp3" });
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    audio.play();
+    audio.onended = () => {
+      document.getElementById("status").innerText = "Status: Done";
+    };
+  }
+</script>
 
 </body>
 </html>
